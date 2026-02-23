@@ -1,0 +1,3716 @@
+---
+title: "MPS III novel tank family analysis"
+author: "Ewan Gerken"
+date: ""
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  autodep = TRUE,
+  echo = TRUE, 
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center", 
+  fig.retina = 1,
+  out.width ="100%", 
+  out.height = "100%"
+)
+```
+
+```{r packages}
+library(tidyverse)
+library(readxl)
+library(here)
+library(magrittr)
+library(scales)
+library(ggpubr)
+library(ggeasy)
+library(ggfortify)
+library(ggbeeswarm)
+library(ggforce)
+library(ggrepel)
+library(kableExtra)
+library(ggtext)
+
+# stat analysis
+library(broom)
+library(lme4)
+library(performance)
+library(car)
+library(emmeans)
+library(glmmTMB)
+library(MASS)
+library(patchwork)
+library(see)
+library(DHARMa)
+library(agricolae)
+library(gamlss)
+library(AICcmodavg)
+library(survival)
+
+# set the default theme for ggplot as theme_bw
+theme_set(theme_bw())
+```
+
+# Introduction. 
+
+Day was not included as a factor in the sgsh analysis since this experiment was
+performed in a single day. 
+Naglu experiment was largely performed on a single day except from the first two fish.
+
+```{r}
+# read in the processed data and metadata spreadsheet for each mutant family. 
+
+sgsh_NTT <- read_xlsx("sgsh_6m_1_noveltank_metadata_totals.xlsx") %>% 
+  mutate(fish_id = as.factor(fish_id),
+         tank = as.factor(tank),
+         sex = as.factor(sex),
+         zantiks_unit = as.factor(zantiks_unit),
+         arena_position = as.factor(arena_position),
+         start_time_group = factor(start_time_group, 
+                                   levels = c("morn", "midd", "arvo")),
+         TIME_TO_TOP = as.numeric(TIME_TO_TOP),
+         genotype = factor(genotype, levels = c("wt", "het", "hom"))
+  )
+
+naglu_NTT <- read_xlsx("naglu_6m_1_noveltank_metadata_totals.xlsx") %>% 
+  mutate(fish_id = as.factor(fish_id),
+         tank = as.factor(tank),
+         sex = as.factor(sex),
+         zantiks_unit = as.factor(zantiks_unit),
+         arena_position = as.factor(arena_position),
+         start_time_group = factor(start_time_group, 
+                                   levels = c("morn", "midd", "arvo")),
+         day = as.factor(day),
+         TIME_TO_TOP = as.numeric(TIME_TO_TOP),
+         genotype = factor(genotype, levels = c("wt", "het", "hom"))
+  )
+
+hgsnat_NTT <- read_xlsx("hgsnat_6m_1_noveltank_metadata_totals.xlsx") %>% 
+  mutate(fish_id = as.factor(fish_id),
+         tank = as.factor(tank),
+         sex = as.factor(sex),
+         zantiks_unit = as.factor(zantiks_unit),
+         arena_position = as.factor(arena_position),
+         start_time_group = factor(start_time_group, 
+                                   levels = c("morn", "midd", "arvo")),
+         day = as.factor(day),
+         TIME_TO_TOP = as.numeric(TIME_TO_TOP),
+         genotype = factor(genotype, levels = c("wt", "het", "hom"))
+  )
+
+```
+
+# assess whether tracking worked correctly. 
+
+Tracking is a lot more consistent in the novel tank compared to the y-maze. 
+I have not yet written any code to assess any tracking issues like Karissa did 
+for the Y-maze however any defects in tracking I noticed during testing I noted
+down and omitted those fish.
+
+```{r}
+final_data %>% 
+  ggplot(aes(x = fish_id, y = total_turns)) +
+  geom_col(aes(fill = total_turns >= 200)) + 
+  geom_label_repel(aes(label = fish_id), 
+                   data = . %>% 
+                     dplyr::filter(total_turns >= 200)) +
+  facet_wrap(~bin) +
+  scale_fill_manual(values = c("grey50", "red"))
+```
+
+## Removing fish
+
+Can use this section to remove fish which I had already decided to exclude 
+based on events/observations before or during the test 
+(see 'notes' column of metadata spreadsheet).
+I change the 'keep' column of these to "N", I then have code below that will 
+filter these. For more outlier fish I come across in my analysis, I can use the
+manual remove line of code below.
+
+```{r}
+
+#SGSH
+# removing fish with undetermined genotype or a 'N' in the keep column
+fish2omit_geno_sgsh <- sgsh_NTT %>%
+   dplyr::filter(is.na(genotype)) %>%
+   pull(fish_id)
+ fish2omit_keepCol_sgsh <- sgsh_NTT %>%
+   dplyr::filter(keep== "N") %>%
+   pull(fish_id)
+fish2omit_sgsh <- c(fish2omit_geno_sgsh, fish2omit_keepCol_sgsh) %>%
+  unique()
+
+# Manually remove fish
+fish2omit_sgsh <- c(fish2omit_sgsh, "")
+
+# remove them
+sgsh_NTT %<>%
+  dplyr::filter(!(fish_id %in%fish2omit_sgsh))
+
+#------------------
+
+#NAGLU
+# removing fish with undetermined genotype or a 'N' in the keep column
+fish2omit_geno_naglu <- naglu_NTT %>%
+   dplyr::filter(is.na(genotype)) %>%
+   pull(fish_id)
+ fish2omit_keepCol_naglu <- naglu_NTT %>%
+   dplyr::filter(keep== "N") %>%
+   pull(fish_id)
+fish2omit_naglu <- c(fish2omit_geno_naglu, fish2omit_keepCol_naglu) %>%
+  unique()
+
+# Manually remove fish
+fish2omit_naglu <- c(fish2omit_naglu, "")
+
+# remove them
+naglu_NTT %<>%
+  dplyr::filter(!(fish_id %in%fish2omit_naglu))
+#------------------
+
+
+#HGSNAT
+# removing fish with undetermined genotype or a 'N' in the keep column
+fish2omit_geno_hgsnat <- hgsnat_NTT %>%
+   dplyr::filter(is.na(genotype)) %>%
+   pull(fish_id)
+ fish2omit_keepCol_hgsnat <- hgsnat_NTT %>%
+   dplyr::filter(keep== "N") %>%
+   pull(fish_id)
+fish2omit_hgsnat <- c(fish2omit_geno_hgsnat, fish2omit_keepCol_hgsnat) %>%
+  unique()
+
+# Manually remove fish
+fish2omit_hgsnat <- c(fish2omit_hgsnat, "")
+
+# remove them
+hgsnat_NTT %<>%
+  dplyr::filter(!(fish_id %in%fish2omit_hgsnat))
+
+
+```
+
+
+# genotype proportions
+
+Since these are heterozygous in-cross families I am expecting roughly 1:2:1 
+ratios of wt, hets and homs for each mutation.
+
+```{r}
+
+#sgsh
+sgshgenoprop <-
+sgsh_NTT %>% 
+  dplyr::select(colnames(sgsh_NTT)) %>% 
+  dplyr::distinct() %>% 
+  group_by(genotype) %>% 
+  mutate(n = n()) %>% 
+  ggplot(aes(x = genotype)) +
+  geom_bar(aes(fill = genotype), 
+           colour = "black", alpha = 0.6) +
+  scale_y_continuous(limits = c(0,40), breaks = seq(0,40,4)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       y = "Number of fish", 
+       x = "")
+
+ggsave(filename = "sgsh_NTT_genoprop_v2.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+#sex numbers, change to get all 3 families separately 
+
+sgshsexprop <-
+sgsh_NTT %>% 
+  dplyr::select(colnames(sgsh_NTT)) %>% 
+  dplyr::distinct() %>% 
+  group_by(sex) %>% 
+  mutate(n = n()) %>% 
+  ggplot(aes(x = sex)) +
+  geom_bar(aes(fill = sex), 
+           colour = "black", alpha = 0.6) +
+  scale_y_continuous(limits = c(0,52), breaks = seq(0,52,4)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^*** family",
+       y = "Number of fish", 
+       x = "")
+
+ggsave(filename = "sgsh_NTT_genoprop_v2.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(objectname, "output/object name.rds")
+
+#naglu
+naglugenoprop <-
+naglu_NTT %>% 
+  dplyr::select(colnames(naglu_NTT)) %>% 
+  dplyr::distinct() %>% 
+  group_by(genotype) %>% 
+  mutate(n = n()) %>% 
+  ggplot(aes(x = genotype)) +
+  geom_bar(aes(fill = genotype), 
+           colour = "black", alpha = 0.6) +
+  scale_y_continuous(limits = c(0,40), breaks = seq(0,40,4)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       y = "Number of fish", 
+       x = "")
+
+ggsave(filename = "naglu_NTT_genoprop_v2.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(objectname, "output/object name.rds")
+
+#hgsnat
+hgsnatgenoprop<- 
+  hgsnat_NTT %>% 
+  dplyr::select(colnames(hgsnat_NTT)) %>% 
+  dplyr::distinct() %>% 
+  group_by(genotype) %>% 
+  mutate(n = n()) %>% 
+  ggplot(aes(x = genotype)) +
+  geom_bar(aes(fill = genotype), 
+           colour = "black", alpha = 0.6) +
+  scale_y_continuous(limits = c(0,40), breaks = seq(0,40,4)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       y = "Number of fish", 
+       x = "")
+
+ggsave(filename = "hgsnat_NTT_genoprop_v2.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(hgsnattest, "output/hgsnattest.rds")
+
+
+```
+
+#DONE genotype and sex proportions combined plot making
+
+```{r}
+
+sgshagedgenoproportions <- readRDS("data/.rds")
+sgshagedgenoproportions <- readRDS("data/.rds")
+hgsnatagedgenoproportions <- readRDS("data/.rds")
+
+  
+ggarrange(sgshgenoprop, naglugenoprop, hgsnatgenoprop,
+          sgshsexprop, naglusexprop, hgsnatsexprop,
+          common.legend = T, legend = "bottom", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combinedgenosexProp.svg", 
+       path = "output/", width = 12, height = 8, dpi = 300)
+
+```
+
+# top entries
+
+## sgsh
+```{r}
+
+#raw plot
+
+sgshRentries <- sgsh_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(sgsh_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype, y = ZONE1_COUNT)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  labs(y = "Number of top zone entries", 
+       x = "***sgsh^S387Lfs^* genotype**",
+       title = "")
+
+ggsave(filename = "sgsh_topentries_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+#checking distribution
+
+hist(sgsh_NTT$ZONE1_COUNT, breaks = 15)
+bartlett.test(sgsh_NTT$ZONE1_COUNT ~ sgsh_NTT$genotype)
+
+#glm to use
+
+sgshZ1_countglm <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  glm.nb(ZONE1_COUNT ~ genotype*sex + start_time_group, link = "log", data = .)
+
+check_model(sgshZ1_countglm)
+AICc(sgshZ1_countglm)
+check_overdispersion(sgshZ1_countglm)
+
+# I went away from glmmtmb because I have to choose between type I and II nbinom
+# nbinom2 is default apparently, glm.nb likely uses this as was similar result
+
+sgshZ1_countglm2 <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  glmmTMB(
+    ZONE1_COUNT ~ genotype*sex + start_time_group,
+    family = nbinom2(link = "log"),
+    data = .
+  )
+
+# saving the anova values table as a csv for paper tables
+
+Anova(sgshZ1_countglm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/sgshZ1_countglm.csv", 
+            row.names = TRUE)
+
+
+#plotting emmeans
+
+sgshZ1count_geno <-
+print(emmeans(sgshZ1_countglm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgshZ1_countglm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 75,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,75), breaks = seq(0,75,10)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of genotype **p = 0.061**",
+       y = "Number of top entries", 
+       x = "")
+
+#sex comparison
+
+sgshZ1count_sex <-
+print(emmeans(sgshZ1_countglm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgshZ1_countglm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 80,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,80), breaks = seq(0,80,10)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of sex **p = 0.041**",
+       y = "Number of top entries", 
+       x = "")
+
+# start_time_group
+
+print(emmeans(sgshZ1_countglm, ~ start_time_group), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = start_time_group, y = response, colour = start_time_group)) +
+  geom_col(aes(fill = start_time_group), 
+           alpha = 0.5,
+           width = 0.75,
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1,
+                position = position_dodge(width = 0.75)) +
+  scale_y_continuous(limits = c(0,75), breaks = seq(0,75,5)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       y = "Number of top entries", 
+       x = "")
+
+
+```
+
+## naglu
+```{r}
+nagluRentries <- naglu_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = ZONE1_COUNT)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black",
+               outlier.shape = NA) +
+  
+#facet_wrap(~sex) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  labs(y = "Number of top zone entries", 
+       x = "***naglu^A603Efss^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_topentries_raw_v1B.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+
+
+## histogram of the distribution of the zone 1 count data
+
+hist(naglu_NTT$ZONE1_COUNT, breaks = 15)
+  
+#real
+
+nagluZ1_countglm <- naglu_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(naglu_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  glm.nb(ZONE1_COUNT ~ genotype*sex + start_time_group + tank, link = "log", data = .)
+
+check_model(nagluZ1_countglm)
+
+AICc(nagluZ1_countglm)
+
+check_overdispersion(nagluZ1_countglm)
+
+Anova(nagluZ1_countglm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/nagluZ1_countglm.csv", 
+            row.names = TRUE)
+
+# saving the anova values table as a csv for paper tables
+
+#plotting emmeans
+
+nagluZ1count_geno <-
+print(emmeans(nagluZ1_countglm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(nagluZ1_countglm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 75,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,75), breaks = seq(0,75,10)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype **p = 0.0076**",
+       y = "Number of top entries", 
+       x = "")
+
+# sex plot
+
+nagluZ1count_sex <-
+print(emmeans(nagluZ1_countglm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(nagluZ1_countglm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 80,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,80), breaks = seq(0,80,10)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of sex **p = 0.75**",
+       y = "Number of top entries", 
+       x = "")
+
+
+```
+
+## hgsnat
+```{r}
+hgsnatRentries <- hgsnat_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = ZONE1_COUNT)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +   
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  geom_quasirandom(size = 2) +
+  #scale_fill_viridis_d(option = "viridis") +
+  #scale_colour_viridis_d(option = "viridis") +
+  labs(y = "Number of top zone entries", 
+       x = "***hgsnat^G577Sfs^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_topentries_raw_v3.svg", 
+       path = "output/", width = 6, height = 4, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+#check distribution
+
+hist(hgsnat_NTT$ZONE1_COUNT, breaks = 15)
+
+hgsnatZ1_countglm <- hgsnat_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(hgsnat_NTT), ZONE1_COUNT) %>% 
+  unique %>% 
+  glm.nb(ZONE1_COUNT ~ genotype*sex + start_time_group + tank, link = "log", data = .)
+
+check_model(hgsnatZ1_countglm)
+
+check_overdispersion(hgsnatZ1_countglm)
+
+AICc(hgsnatZ1_countglm)
+
+
+# saving the anova values table as a csv for paper tables
+
+Anova(hgsnatZ1_countglm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/hgsnatZ1_countglm.csv", 
+            row.names = TRUE)
+
+#plotting emmeans
+
+hgsnatZ1count_geno <-
+print(emmeans(hgsnatZ1_countglm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+    geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnatZ1_countglm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.1) %>%  
+      mutate(
+       y.position = 75,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,75), breaks = seq(0,75,10)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype **p = 0.041**",
+       y = "Number of top entries", 
+       x = "")
+
+#sex comparison
+
+hgsnatZ1count_sex <-
+print(emmeans(hgsnatZ1_countglm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnatZ1_countglm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 80,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,80), breaks = seq(0,80,10)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of sex **p = 0.42**",
+       y = "Number of top entries", 
+       x = "")
+
+
+# start_time_group
+
+print(emmeans(hgsnatZ1_countglm, ~ start_time_group), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = start_time_group, y = response, colour = start_time_group)) +
+  geom_col(aes(fill = start_time_group), 
+           alpha = 0.5,
+           width = 0.75,
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                linewidth = 1,
+                position = position_dodge(width = 0.75)) +
+  scale_y_continuous(limits = c(0,75), breaks = seq(0,75,5)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       y = "Number of top entries", 
+       x = "")
+
+```
+
+
+##DONE combined top entries figure
+```{r}
+
+ggarrange(sgshZ1count_geno, nagluZ1count_geno, hgsnatZ1count_geno,
+          sgshZ1count_sex, nagluZ1count_sex, hgsnatZ1count_sex,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combined_Z1_fig2_v1.svg", 
+       path = "output/", width = 12, height = 10, dpi = 300)
+```
+
+#raw t2t, entries, time                           
+```{r}
+ggarrange(sgshRt2t, nagluRt2t, hgsnatRt2t,
+          sgshRentries, nagluRentries, hgsnatRentries,
+          sgshRtime, nagluRtime, hgsnatRtime,
+          common.legend = T, legend = "none", ncol = 3, nrow = 3,
+          label.x = 0)
+
+ggsave(filename = "NTT_raw_Fig.S1v1.svg", 
+       path = "output/", width = 15, height = 15, dpi = 300)
+
+```
+
+#raw distance and ratio 3x2                             
+```{r}
+ggarrange(sgshRdist,nagluRdist, hgsnatRdist,
+          sgshRratio, nagluRratio, hgsnatRratio,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_rawdist_Fig.S2v1.svg", 
+       path = "output/", width = 15, height = 10, dpi = 300)
+
+```
+
+# total distance travelled
+
+## sgsh
+```{r}
+sgshRdist <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype, y = TOTAL_DISTANCE)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  #facet_wrap(~sex) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,55000), breaks = seq(0,55000,5000)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  labs(y = "Total distance travelled (mm)", 
+       x = "***sgsh^S387Lfs^* genotype**",
+       title = "")
+
+ggsave(filename = "sgsh_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(, "data/.rds")
+
+# distribution of total distance data
+
+hist(sgsh_NTT$TOTAL_DISTANCE, breaks = 15)
+
+ggqqplot(sgsh_NTT$TOTAL_DISTANCE)
+
+ggdensity(sgsh_NTT$TOTAL_DISTANCE)
+
+shapiro.test(sgsh_NTT$TOTAL_DISTANCE)
+
+skewness(sgsh_NTT$TOTAL_DISTANCE)
+
+##linear model on the data
+
+sgsh_totdist_lm <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  lm(TOTAL_DISTANCE ~ genotype*sex + start_time_group, data = .)
+
+check_model(sgsh_totdist)
+AICc(sgsh_totdist)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(sgsh_totdist_lm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/sgsh_totdist_lm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+sgshdist_geno <-
+print(emmeans(sgsh_totdist_lm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = emmean, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_totdist_lm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 30000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,30000), breaks = seq(0,30000,5000)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of genotype **p = 0.61**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+# sex plot
+
+sgshdist_sex <-
+print(emmeans(sgsh_totdist_lm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = emmean, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_totdist_lm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 34000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,35000), breaks = seq(0,35000,5000)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of sex **p = 0.0051**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+## log transformation if histogram fucking wack bro 
+mutate(total_timeInZone = sum(time_in_zone),
+         logtimezone = log(total_timeInZone),
+         zone = paste0("zone ", zone)) %>%
+
+```
+
+## naglu
+```{r}
+nagluRdist <- naglu_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(naglu_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = TOTAL_DISTANCE)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,55000), breaks = seq(0,55000,5000)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  labs(y = "Total distance travelled (mm)", 
+       x = "***naglu^A603Efs^* genotype**",
+       title = "")
+
+ggsave(filename = "naglu_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+
+# distribution of total distance data
+
+hist(naglu_NTT$TOTAL_DISTANCE, breaks = 15)
+
+ggqqplot(naglu_NTT$TOTAL_DISTANCE)
+
+ggdensity(naglu_NTT$TOTAL_DISTANCE)
+
+shapiro.test(naglu_NTT$TOTAL_DISTANCE)
+
+skewness(naglu_NTT$TOTAL_DISTANCE)
+
+##linear model on the data
+
+naglu_totdist_lm <- naglu_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(naglu_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  lm(TOTAL_DISTANCE ~ genotype*sex + start_time_group + tank, data = .)
+
+check_model(naglu_totdist_lm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(naglu_totdist_lm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/naglu_totdist_lm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+nagludist_geno <-
+print(emmeans(naglu_totdist_lm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = emmean, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_totdist_lm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 29000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,30000), breaks = seq(0,30000,5000)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype **p = 0.02**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+# sex plot
+
+nagludist_sex <-
+print(emmeans(naglu_totdist_lm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = emmean, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_totdist_lm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 34000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,35000), breaks = seq(0,35000,5000)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of sex **p = 0.089**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+## log transformation if histogram is weird
+mutate(total_timeInZone = sum(time_in_zone),
+         logtimezone = log(total_timeInZone),
+         zone = paste0("zone ", zone)) %>%
+
+```
+
+## hgsnat
+```{r}
+hgsnatRdist <- hgsnat_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = TOTAL_DISTANCE)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,55000), breaks = seq(0,55000,5000)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  labs(y = "Total distance travelled (mm)", 
+       x = "***hgsnat^G577Sfs^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+# distribution of total distance data
+
+hist(hgsnat_NTT$TOTAL_DISTANCE, breaks = 15)
+
+ggqqplot(hgsnat_NTT$TOTAL_DISTANCE)
+
+ggdensity(hgsnat_NTT$TOTAL_DISTANCE)
+
+shapiro.test(hgsnat_NTT$TOTAL_DISTANCE)
+
+skewness(hgsnat_NTT$TOTAL_DISTANCE)
+
+##linear model on the data
+# had a look with day as factor. ns and model slightly better without so rm'd
+
+hgsnat_totdist_lm <- hgsnat_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(hgsnat_NTT), TOTAL_DISTANCE) %>% 
+  unique %>% 
+  lm(TOTAL_DISTANCE ~ genotype*sex + start_time_group + tank, data = .)
+
+
+check_model(hgsnat_totdist_lm)
+
+AICc(hgsnat_totdist_lm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(hgsnat_totdist_lm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/hgsnat_totdist_lm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+hgsnatdist_geno <-
+print(emmeans(hgsnat_totdist_lm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = emmean, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_totdist_lm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 29000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,30000), breaks = seq(0,30000,5000)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) + 
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype **p = 0.09**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+# sex plot
+
+hgsnatdist_sex <-
+print(emmeans(hgsnat_totdist_lm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = emmean, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_totdist_lm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 34000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,35000), breaks = seq(0,35000,5000)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of sex **p = 0.7**",
+       y = "Total distance travelled (mm)", 
+       x = "")
+
+
+## log transformation if histogram fucking wack bro 
+mutate(total_timeInZone = sum(time_in_zone),
+         logtimezone = log(total_timeInZone),
+         zone = paste0("zone ", zone)) %>%
+
+```
+
+##DONE combined total distance figure
+```{r}
+
+ggarrange(sgshdist_geno, nagludist_geno, hgsnatdist_geno,
+          sgshdist_sex, nagludist_sex, hgsnatdist_sex,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combined_dist_fig3_v1.svg", 
+       path = "output/", width = 12, height = 10, dpi = 300)
+
+```
+
+# top zone distance ratio
+
+## sgsh
+```{r}
+sgshRratio <- sgsh_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(sgsh_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype, y = Z1_DIST_RATIO)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,0.67), breaks = seq(0,0.67,0.05)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  labs(y = "Top zone distance ratio", 
+       x = "***sgsh^S387Lfs^* genotype**",
+       title = "")
+
+ggsave(filename = "sgsh_topdistratio_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+
+# distribution of top distance ratio data
+
+hist(sgsh_NTT$Z1_DIST_RATIO, breaks = 15)
+
+ggqqplot(sgsh_NTT$Z1_DIST_RATIO)
+
+ggdensity(sgsh_NTT$Z1_DIST_RATIO)
+
+shapiro.test(sgsh_NTT$Z1_DIST_RATIO)
+
+skewness(sgsh_NTT$Z1_DIST_RATIO)
+
+##glm on the data
+
+sgsh_topratio_glm <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+    glmmTMB(
+    Z1_DIST_RATIO ~ genotype*sex + start_time_group,
+    family = beta_family(link = "logit"),
+    data = .
+  )
+
+check_model(sgsh_topratio_glm)
+check_overdispersion(sgsh_topratio_glm)
+summary(sgsh_topratio_glm)
+AICc(sgsh_topratio_glm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(sgsh_topratio_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/sgsh_topratio_glm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+sgshratio_geno <-
+print(emmeans(sgsh_topratio_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_topratio_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.33,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.35), breaks = seq(0,0.35,0.05)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of genotype **p = 0.45**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+# sex plot
+
+sgshratio_sex <-
+print(emmeans(sgsh_topratio_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_topratio_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.8,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.4), breaks = seq(0,0.4,0.05)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of sex **p = 0.64**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+```
+
+## naglu
+```{r}
+nagluRratio <- naglu_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(naglu_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = Z1_DIST_RATIO)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,0.67), breaks = seq(0,0.67,0.05)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  labs(y = "Top zone distance ratio", 
+       x = "***naglu^A603Efs^* genotype**",
+       title = "")
+
+ggsave(filename = "naglu_topdistratio_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+```
+
+
+```{r}
+# distribution of top distance ratio data
+
+hist(naglu_NTT$Z1_DIST_RATIO, breaks = 15)
+
+ggqqplot(naglu_NTT$Z1_DIST_RATIO)
+
+ggdensity(naglu_NTT$Z1_DIST_RATIO)
+
+shapiro.test(naglu_NTT$Z1_DIST_RATIO)
+
+skewness(naglu_NTT$Z1_DIST_RATIO)
+```
+
+
+```{r}
+##glm on the data
+
+#glmmTMB beta_family link=logit doesn't work as y must be >0
+# update, added positive constant to all zero values in dist and time so works
+
+naglu_topratio_glm <- naglu_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(naglu_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+    glmmTMB(
+    Z1_DIST_RATIO ~ genotype*sex + start_time_group + tank,
+    family = beta_family(link = "logit"),
+    data = .
+  )
+
+
+check_model(naglu_topratio_glm)
+check_overdispersion(naglu_topratio_glm)
+summary(naglu_topratio_glm)
+AICc(naglu_topratio_glm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(naglu_topratio_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/naglu_topratio_glm.csv", 
+            row.names = TRUE)
+
+
+```
+
+
+```{r}
+##emmeans plot
+
+nagluratio_geno <-
+print(emmeans(naglu_topratio_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_topratio_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.3,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.35), breaks = seq(0,0.35,0.05)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype **p = 6.1e-06**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+# sex plot
+
+nagluratio_sex <-
+print(emmeans(naglu_topratio_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_topratio_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.38,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.4), breaks = seq(0,0.4,0.05)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of sex **p = 0.17**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+
+```
+
+## hgsnat
+```{r}
+hgsnatRratio <- hgsnat_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = Z1_DIST_RATIO)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,0.67), breaks = seq(0,0.67,0.05)) +
+  geom_quasirandom(size = 2) +
+  labs(y = "Top zone distance ratio", 
+       x = "***hgsnat^G577Sfs^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_topdistratio_raw_v2.svg", 
+       path = "output/", width = 6, height = 4, dpi = 300)
+
+
+# distribution of top distance ratio data
+
+hist(hgsnat_NTT$Z1_DIST_RATIO, breaks = 15)
+
+ggqqplot(hgsnat_NTT$Z1_DIST_RATIO)
+
+ggdensity(hgsnat_NTT$Z1_DIST_RATIO)
+
+shapiro.test(hgsnat_NTT$Z1_DIST_RATIO)
+
+skewness(hgsnat_NTT$Z1_DIST_RATIO)
+
+#glm model
+hgsnat_topratio_glm <- hgsnat_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(hgsnat_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+    glmmTMB(
+    Z1_DIST_RATIO ~ genotype*sex + start_time_group + tank + day,
+    family = beta_family(link = "logit"),
+    data = .
+  )
+
+
+check_model(hgsnat_topratio_glm)
+check_overdispersion(hgsnat_topratio_glm)
+summary(hgsnat_topratio_glm)
+AICc(hgsnat_topratio_glm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(hgsnat_topratio_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/hgsnat_topratio_glm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+#hgsnatratio_geno <-
+print(emmeans(hgsnat_topratio_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_topratio_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.3,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.35), breaks = seq(0,0.35,0.05)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype **p = 9.2e-06**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+# sex plot
+
+#hgsnatratio_sex <-
+print(emmeans(hgsnat_topratio_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_topratio_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 0.38,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,0.4), breaks = seq(0,0.4,0.05)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of sex **p = 0.00012**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+# geno sex interaction significant
+
+hgsnatratio_genosex <-
+print(emmeans(hgsnat_topratio_glm, ~ sex*genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9,
+           position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.5)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_topratio_glm, pairwise ~ genotype * sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%
+      mutate(
+       y.position = 0.4,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.03
+  ) +
+  scale_y_continuous(limits = c(0,0.5), breaks = seq(0,0.5,0.05)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype*sex **p = 0.00017**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+# start time group significant
+
+hgsnatratio_starttime <-
+print(emmeans(hgsnat_topratio_glm, ~ start_time_group), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = start_time_group, y = response, colour = start_time_group)) +
+  geom_point(aes(fill = start_time_group), 
+           alpha = 1,
+           size = 9,
+           position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.5)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_topratio_glm, pairwise ~ start_time_group, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.1) %>%  
+      mutate(
+       y.position = 0.20,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.03
+  ) +
+  scale_y_continuous(limits = c(0,0.25), breaks = seq(0,0.25,0.05)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0.4, end = 0.9) +
+  scale_colour_viridis_d(option = "viridis", begin = 0.4, end = 0.9) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of start time **p = 0.037**",
+       y = "Top zone distance ratio", 
+       x = "")
+
+```
+
+## DONE combined distance ratio figure
+```{r}
+
+ggarrange(sgshratio_geno, nagluratio_geno, hgsnatratio_geno,
+          sgshratio_sex, nagluratio_sex, hgsnatratio_sex,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combined_ratio_v1.svg", 
+       path = "output/", width = 12, height = 10, dpi = 300)
+
+```
+
+## DONE supp hgsnat other effects
+```{r}
+
+ggarrange(hgsnatratio_genosex, hgsnatratio_starttime,
+          common.legend = F, legend = "bottom", ncol = 2, nrow = 1,
+          label.x = 0)
+
+ggsave(filename = "NTT_Fig.S3v1.svg", 
+       path = "output/", width = 12, height = 6, dpi = 300)
+
+```
+# time to top zone
+
+Every fish in the sgsh family entered the top zone during the test, so there are no NA values in the TIME_TO_TOP column. However, there are some fish that did not enter the top zone in the naglu and hgsnat families, so I will need to approach the statistical modelling of these two families differently.
+
+## sgsh
+```{r}
+sgshRt2t <- sgsh_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(sgsh_NTT), TIME_TO_TOP) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype, y = TIME_TO_TOP)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) + 
+  labs(y = "time to top zone (s)", 
+       x = "***sgsh^S387Lfs^* genotype**",
+       title = "")
+
+ggsave(filename = "sgsh_t2t_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+
+
+# distribution of time to top data
+
+hist(sgsh_NTT$TIME_TO_TOP, breaks = 60)
+
+ggqqplot(sgsh_NTT$TIME_TO_TOP)
+
+ggdensity(sgsh_NTT$TIME_TO_TOP)
+
+shapiro.test(sgsh_NTT$TIME_TO_TOP)
+
+skewness(sgsh_NTT$TIME_TO_TOP)
+
+
+# survival analysis method
+
+# create a censoring indicator. 1 = reached top, 0 = did not reach top(censored)
+sgsh_NTT$reach_top <- ifelse(is.na(sgsh_NTT$TIME_TO_TOP), 0, 1)
+
+# set censored fish time to 600 seconds (the duration of the test)
+sgsh_NTT$TIME_TO_TOP_CEN <- ifelse(is.na(sgsh_NTT$TIME_TO_TOP), 
+                                    600, 
+                                    sgsh_NTT$TIME_TO_TOP)
+#survival model
+sgsh_survival <- survreg(Surv(TIME_TO_TOP_CEN, reach_top) ~ 
+                          genotype*sex + start_time_group,
+                          data = sgsh_NTT,
+                          subset = keep_t2t != "N",
+                          dist = "weibull")
+
+dfbeta(sgsh_survival)
+
+AICc(sgsh_survival)
+AICc(sgsh_survival2)
+summary(sgsh_survival2)
+check_model(sgsh_survival, residual_type = "normal", check = "all")
+residuals(sgsh_survival, type = "deviance") %>% qqnorm()
+
+# saving the anova values table as a csv for paper tables
+Anova(sgsh_survival) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/sgsh_survival.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+sgsht2t_geno <-
+print(emmeans(sgsh_survival2, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_survival2, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 700,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,770), breaks = seq(0,700,50)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) + 
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of genotype **p = 0.0012**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+# sex plot
+
+sgsht2t_sex <-
+print(emmeans(sgsh_survival, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_survival, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 625,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of sex **p = 0.23**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+```
+
+## naglu
+```{r}
+nagluRt2t <- naglu_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(naglu_NTT), TIME_TO_TOP) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = TIME_TO_TOP)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  labs(y = "time to top zone (s)", 
+       x = "***naglu^A603Efs^* genotype**",
+       title = "")
+
+ggsave(filename = "naglu_t2t_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+
+
+# distribution of time to top data
+
+hist(naglu_NTT$TIME_TO_TOP, breaks = 10)
+
+ggqqplot(naglu_NTT$TIME_TO_TOP)
+
+ggdensity(naglu_NTT$TIME_TO_TOP)
+
+shapiro.test(naglu_NTT$TIME_TO_TOP)
+
+skewness(naglu_NTT$TIME_TO_TOP)
+
+
+# survival analysis method
+
+# create a censoring indicator. 1 = reached top, 0 = did not reach top(censored)
+naglu_NTT$reach_top <- ifelse(is.na(naglu_NTT$TIME_TO_TOP), 0, 1)
+
+# set censored fish time to 600 seconds (the duration of the test)
+naglu_NTT$TIME_TO_TOP_CEN <- ifelse(is.na(naglu_NTT$TIME_TO_TOP), 
+                                    600, 
+                                    naglu_NTT$TIME_TO_TOP)
+#survival model
+# naglu data had NA's instead of Y. Changing it so model will run subset.
+naglu_NTT$keep_t2t[is.na(naglu_NTT$keep_t2t)] <- "Y"
+
+naglu_survival <- survreg(Surv(TIME_TO_TOP_CEN, reach_top) ~ 
+                          genotype*sex + start_time_group + tank,
+                          data = naglu_NTT,
+                          subset = keep_t2t != "N",
+                          dist = "weibull")
+
+
+                          
+summary(naglu_survival)
+AICc(naglu_survival2)
+check_model(naglu_survival2)
+plot(naglu_survival)
+
+# saving the anova values table as a csv for paper tables
+Anova(naglu_survival) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/naglu_survival.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+naglut2t_geno <-
+print(emmeans(naglu_survival, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_survival, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 700,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,770), breaks = seq(0,700,50)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype **p = 0.00028**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+# sex plot
+
+naglut2t_sex <-
+print(emmeans(naglu_survival, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_survival, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 625,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of sex **p = 0.60**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+#geno * sex interaction plot
+
+print(emmeans(naglu_survival, ~ genotype * sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = sex)) +
+  geom_point(aes(fill = sex, colour = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  # stat_pvalue_manual(
+  #   emmeans(naglu_survival, pairwise ~ genotype * sex, adjust = "tukey") %>%
+  #     .$contrasts %>%
+  #     as.data.frame() %>%
+  #     separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+  #     dplyr::filter(p.value < 0.05) %>%  
+  #     mutate(
+  #      y.position = 700,
+  #        label = sprintf("p = %.2g", p.value)           # 2 sig digits
+  #     ),
+  #   size = 5,
+  #   step.increase = 0.1,
+  #   y.position = "y.position",
+  #   bracket.nudge.y = -1,
+  #   tip.length = 0.05
+  # ) +
+  #scale_y_continuous(limits = c(0,770), breaks = seq(0,700,50)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 1) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 1) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype * sex **p = 0.063**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+```
+
+## hgsnat
+```{r}
+hgsnatRt2t <- hgsnat_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), TIME_TO_TOP) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = TIME_TO_TOP)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  geom_quasirandom(size = 2) +
+  labs(y = "time to top zone (s)", 
+       x = "***hgsnat^G577Sfs^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_t2t_raw_v2.svg", 
+       path = "output/", width = 6, height = 4, dpi = 300)
+
+saveRDS(blank, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+
+# distribution of time to top data
+
+hist(hgsnat_NTT$TIME_TO_TOP, breaks = 60)
+
+ggqqplot(hgsnat_NTT$TIME_TO_TOP)
+
+ggdensity(hgsnat_NTT$TIME_TO_TOP)
+
+shapiro.test(hgsnat_NTT$TIME_TO_TOP)
+
+skewness(hgsnat_NTT$TIME_TO_TOP)
+
+##glm on the data
+
+hgsnat_t2t <- hgsnat_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(hgsnat_NTT), TIME_TO_TOP) %>% 
+  unique %>% 
+    glmmTMB(
+    TIME_TO_TOP ~ genotype + sex,
+    family = Gamma(link = "log"),
+    data = .
+  )
+
+#assessing the model
+
+check_model(hgsnat_t2t)
+
+#assess residuals
+
+sim_res_hgsnat <- simulateResiduals(hgsnat_t2t)
+plot(sim_res)
+
+Anova(hgsnat_t2t)
+
+check_overdispersion(hgsnat_t2t)
+
+check_convergence(hgsnat_t2t)
+
+summary(hgsnat_t2t)
+
+AICc(hgsnat_t2t)
+
+# survival analysis method
+
+# create a censoring indicator. 1 = reached top, 0 = did not reach top(censored)
+hgsnat_NTT$reach_top <- ifelse(is.na(hgsnat_NTT$TIME_TO_TOP), 0, 1)
+
+# set censored fish time to 600 seconds (the duration of the test)
+hgsnat_NTT$TIME_TO_TOP_CEN <- ifelse(is.na(hgsnat_NTT$TIME_TO_TOP), 
+                                    600, 
+                                    hgsnat_NTT$TIME_TO_TOP)
+#survival model
+hgsnat_survival <- survreg(Surv(TIME_TO_TOP_CEN, reach_top) ~ 
+                          genotype*sex + start_time_group + tank + day,
+                          data = hgsnat_NTT,
+                          subset = keep_t2t != "N",
+                          dist = "weibull")
+                          
+summary(hgsnat_survival)
+AICc(hgsnat_survival)
+check_model(hgsnat_survival)
+plot(hgsnat_survival)
+
+# saving the anova values table as a csv for paper tables
+Anova(hgsnat_survival) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/hgsnat_survival.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+hgsnatt2t_geno <-
+print(emmeans(hgsnat_survival, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_survival, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 700,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,770), breaks = seq(0,700,50)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) + 
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype **p = 0.07**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+# sex plot
+
+hgsnatt2t_sex <-
+print(emmeans(hgsnat_survival, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_survival, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 625,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,600), breaks = seq(0,600,50)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of sex **p = 0.028**",
+       y = "Time to reach top zone (s)", 
+       x = "")
+
+```
+
+## DONE combined t2t figure
+```{r}
+
+ggarrange(sgsht2t_geno, naglut2t_geno, hgsnatt2t_geno,
+          sgsht2t_sex, naglut2t_sex, hgsnatt2t_sex,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combined_t2t_v2.svg", 
+       path = "output/", width = 12, height = 10, dpi = 300)
+
+```
+
+# time in top zone
+
+## sgsh
+```{r}
+sgshRtime <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype, y = ZONE1_TIME)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  #facet_wrap(~sex) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,500), breaks = seq(0,500,50)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) + 
+  labs(y = "Time in top zone (s)", 
+       x = "***sgsh^S387Lfs^* genotype**",
+       title = "")
+
+ggsave(filename = "sgsh_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(, "data/.rds")
+
+# distribution of total distance data
+
+hist(sgsh_NTT$ZONE1_TIME, breaks = 15)
+
+ggqqplot(sgsh_NTT$ZONE1_TIME)
+
+ggdensity(sgsh_NTT$ZONE1_TIME)
+
+shapiro.test(sgsh_NTT$ZONE1_TIME)
+
+skewness(sgsh_NTT$ZONE1_TIME)
+
+##linear model on the data
+
+sgsh_Z1time_glm <- sgsh_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(sgsh_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+    glmmTMB(
+    ZONE1_TIME ~ genotype*sex + start_time_group,
+    #family = Gamma(link = "log"),
+    family = tweedie(link = "log"),
+    data = .)
+
+check_model(sgsh_Z1time_glm)
+AICc(sgsh_Z1time_glm)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(sgsh_Z1time_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/sgsh_Z1time_glm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+sgshZ1time_geno <-
+print(emmeans(sgsh_Z1time_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_Z1time_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 30000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,210), breaks = seq(0,210,25)) +
+  scale_color_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  scale_fill_manual(values = c("#404040ff","#ff7aabff", "#ff295eff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of genotype **p = 0.36**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+# sex plot
+
+sgshZ1time_sex <-
+print(emmeans(sgsh_Z1time_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(sgsh_Z1time_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 30000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***sgsh^S387Lfs^***",
+       subtitle = "effect of sex **p = 0.8**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+```
+
+## naglu
+```{r}
+nagluRtime <- naglu_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(naglu_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = ZONE1_TIME)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,500), breaks = seq(0,500,50)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  labs(y = "Time in top zone (s)", 
+       x = "***naglu^A603Efs^* genotype**",
+       title = "")
+
+ggsave(filename = "naglu_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+
+# distribution of time in top zone data
+
+hist(naglu_NTT$ZONE1_TIME, breaks = 15)
+
+ggqqplot(naglu_NTT$ZONE1_TIME)
+
+ggdensity(naglu_NTT$ZONE1_TIME)
+
+shapiro.test(naglu_NTT$ZONE1_TIME)
+
+skewness(naglu_NTT$ZONE1_TIME)
+
+##glm model on the data
+
+naglu_Z1time_glm <- naglu_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(naglu_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+    glmmTMB(
+    ZONE1_TIME ~ genotype*sex + start_time_group + tank,
+    #family = Gamma(link = "log"),
+    family = tweedie(link = "log"),
+    data = .)
+
+check_model(naglu_Z1time_glm)
+AICc(naglu_Z1time_glmT)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(naglu_Z1time_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/naglu_Z1time_glm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+nagluZ1time_geno <-
+print(emmeans(naglu_Z1time_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_Z1time_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.1) %>%  
+      mutate(
+       y.position = 175,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,210), breaks = seq(0,210,25)) +
+  scale_color_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  scale_fill_manual(values = c("#404040ff","#e5d300ff", "#ffae00ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of genotype **p = 0.04**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+# sex plot
+
+nagluZ1time_sex <-
+print(emmeans(naglu_Z1time_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(naglu_Z1time_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 30000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = -1,
+    tip.length = 0.05) +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***naglu^A603Efs^***",
+       subtitle = "effect of sex **p = 0.59**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+```
+
+## hgsnat
+```{r}
+hgsnatRtime <- hgsnat_NTT %>%
+  ungroup() %>%
+  group_by(fish_id) %>%
+  #mutate(total_turns = sum(x)) %>%
+  dplyr::select(colnames(hgsnat_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+  ggplot(aes(x = genotype,y = ZONE1_TIME)) +
+  geom_violin(aes(fill = genotype),
+               alpha = 0.5) +
+  geom_boxplot(aes(colour = genotype),
+               fill = NA,
+               width = 0.25,
+               colour= "black") +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5),
+        axis.title.x = element_markdown(size = 18, hjust = 0.5, 
+                                        margin = margin(b = 5, t = 15)),
+        axis.title.y = element_markdown(size = 18, hjust = 0.5),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 18),
+        legend.position = "none") +
+  scale_y_continuous(limits = c(0,500), breaks = seq(0,500,50)) +
+  geom_quasirandom(size = 2) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  labs(y = "Time in top zone (s)", 
+       x = "***hgsnat^G577Sfs^* genotype**",
+       title = "")
+
+ggsave(filename = "hgsnat_totdist_raw_v1.svg", 
+       path = "output/", width = 5, height = 6, dpi = 300)
+
+saveRDS(sgshaged_raw_turns, "data/R objects/supps/sgshaged_raw_turns.rds")
+
+# distribution of total distance data
+
+hist(hgsnat_NTT$ZONE1_TIME, breaks = 15)
+
+ggqqplot(hgsnat_NTT$ZONE1_TIME)
+
+ggdensity(hgsnat_NTT$ZONE1_TIME)
+
+shapiro.test(hgsnat_NTT$ZONE1_TIME)
+
+skewness(hgsnat_NTT$ZONE1_TIME)
+
+##linear model on the data
+
+hgsnat_Z1time_glm <- hgsnat_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(hgsnat_NTT), ZONE1_TIME) %>% 
+  unique %>% 
+    glmmTMB(
+    ZONE1_TIME ~ genotype*sex + start_time_group + tank + day,
+    #family = Gamma(link = "log"),
+    family = tweedie(link = "log"),
+    data = .)
+
+check_model(hgsnat_Z1time_glm)
+AICc(hgsnat_Z1time_glmT)
+
+# saving the anova values table as a csv for paper tables
+
+Anova(hgsnat_Z1time_glm) %>%
+  as.data.frame() %>%
+  signif(digits = 2) %>% 
+  write.csv("output/anova_tables/hgsnat_Z1time_glm.csv", 
+            row.names = TRUE)
+
+##emmeans plot
+
+hgsnatZ1time_geno <-
+print(emmeans(hgsnat_Z1time_glm, ~ genotype), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_point(aes(fill = genotype), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_Z1time_glm, pairwise ~ genotype, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 30000,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,210), breaks = seq(0,210,25)) +
+  scale_color_manual(values = c("#404040ff","#9ee66fff","#00b064ff")) +
+  scale_fill_manual(values = c("#404040ff","#9ee66fff", "#00b064ff")) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of genotype **p = 0.36**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+# sex plot
+
+hgsnatZ1time_sex <-
+print(emmeans(hgsnat_Z1time_glm, ~ sex), type = "response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = sex, y = response, colour = sex)) +
+  geom_point(aes(fill = sex), 
+           alpha = 1,
+           size = 9) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                width = 0.125,
+                linewidth = 1.5,
+                position = position_dodge(width = 0.75)) +
+  stat_pvalue_manual(
+    emmeans(hgsnat_Z1time_glm, pairwise ~ sex, adjust = "tukey") %>%
+      .$contrasts %>%
+      as.data.frame() %>%
+      separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
+      dplyr::filter(p.value < 0.05) %>%  
+      mutate(
+       y.position = 160,
+         label = sprintf("p = %.2g", p.value)           # 2 sig digits
+      ),
+    size = 5,
+    step.increase = 0.1,
+    y.position = "y.position",
+    bracket.nudge.y = 0,
+    tip.length = 0.05
+  ) +
+  scale_y_continuous(limits = c(0,175), breaks = seq(0,175,25)) +
+  scale_fill_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  scale_colour_viridis_d(option = "viridis", begin = 0, end = 0.3) +
+  theme(legend.position = "bottom",
+        plot.title = element_markdown(size = 18, hjust = 0.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0.5),
+        plot.margin = unit(c(10,15,10,15), 'pt'),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 15),
+        legend.key.size = unit(0.8, 'cm'),
+        axis.text.y = element_markdown(size = 14),
+        axis.text.x = element_markdown(size = 20, face = "bold", hjust = 0.5,
+                               vjust = 1),
+        axis.title.y = element_markdown(size = 18),
+        axis.title.x = element_markdown(size = 16, 
+                                        margin = unit(c(10, 0, 0, 0), "pt"))
+        ) +
+  labs(title = "***hgsnat^G577Sfs^***",
+       subtitle = "effect of sex **p = 0.012**",
+       y = "Time in top zone (s)", 
+       x = "")
+
+```
+
+## DONE combined top zone time figure
+```{r}
+
+ggarrange(sgshZ1time_geno, nagluZ1time_geno, hgsnatZ1time_geno,
+          sgshZ1time_sex, nagluZ1time_sex, hgsnatZ1time_sex,
+          common.legend = T, legend = "none", ncol = 3, nrow = 2,
+          label.x = 0)
+
+ggsave(filename = "NTT_combined_Z1time_v1.svg", 
+       path = "output/", width = 12, height = 10, dpi = 300)
+
+```
+
+## STATISTICAL ANALYSIS EXPERIMENTATION
+
+```{r}
+
+#To test whether the Genotype has a significant effect overall on the total 
+#number of turns, I fitted the summed over bins data to a negative #binomial 
+#generalised linear mixed effect model (negative binomial).
+
+#Since the start time of the test doesnt have a logical pattern 
+#(i.e. more active in morning), I've included it in the model as random #effect.
+
+topmodel <-
+  final_data %>%
+  left_join(LR_Bias) %>%
+  mutate(
+    non_alts = total_turns - alts,
+    bin = as.factor(bin)
+  ) %>%
+  glmmTMB(
+    cbind(alts, non_alts) ~ (bin + genotype)^2 + tank + sex + L_R_bias + 
+      (1|start_time) + (1|fish_id),
+    family = betabinomial(),
+    data = .
+  )
+
+# trying zero inflated beta distribution model using gamlss package
+
+naglu_NTT_short <- naglu_NTT[c("genotype", "Z1_DIST_RATIO", "sex")]
+
+
+naglu_topratioZ <- 
+  gamlss(Z1_DIST_RATIO ~ genotype,
+        family = BEZI(mu.link="logit", sigma.link="log", nu.link="logit"),
+        data = naglu_NTT_short)
+
+check_model(naglu_topratioZ, residual_type = "normal", check = "all")
+
+#trying adding a ziformula parameter into the model I used for sgsh top Z ratio
+
+naglu_topratio <- naglu_NTT %>%
+  ungroup() %>%
+  dplyr::select(colnames(naglu_NTT), Z1_DIST_RATIO) %>% 
+  unique %>% 
+    glmmTMB(
+    Z1_DIST_RATIO ~ genotype + sex + (1|start_time),
+    family = beta_family(link = "logit"),
+    ziformula = ~ genotype + sex + (1|fish_id),
+    data = .
+  )
+
+```
+
+
+```{r}
+sgshaged_turnsacrosshour <- 
+  final_data_long %>%
+  dplyr::distinct(fish_id, bin, .keep_all = TRUE) %>% 
+  mutate(binforvis = case_when(
+    bin == 1 ~ "0-10 mins", 
+    bin == 2 ~ "10-20 mins", 
+    bin == 3 ~ "20-30 mins", 
+    bin == 4 ~ "30-40 mins", 
+    bin == 5 ~ "40-50 mins", 
+    bin == 6 ~ "50-60 mins"
+    )) %>% 
+  ggplot(aes(x = binforvis, 
+             y = total_turns)) +
+  
+  geom_boxplot(aes(fill = genotype,
+       colour = genotype),
+       position = "dodge",
+           alpha = 0.2,
+           outlier.shape = NA) +
+
+  geom_point(aes(colour = genotype, fill = genotype),
+              alpha = 0.7,
+             position = position_jitterdodge()) +
+  
+  #geom_smooth(aes(group = genotype, colour = genotype, 
+  #fill = genotype), se = F, size = 2.5) +
+  
+  geom_label_repel(aes(label = fish_id), data = . %>% 
+                     dplyr::filter(total_turns>300)) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5), 
+        legend.position = "bottom") +
+  scale_y_continuous(limits = c(0,250), breaks = seq(0,250,25)) +
+
+  labs(title = 
+         "Number of turns performed by ***sgsh^S387Lfs^*** zebrafish in the 
+       Y-maze across 1 hour ", 
+       y = "Number of turns", x = "Time bin") +
+  scale_colour_viridis_d(end = 0.75) +
+  scale_fill_viridis_d(end = 0.75)
+
+saveRDS(sgshaged_turnsacrosshour, 
+        "data/R objects/supps/sgshaged_turnsacrosshour.rds")
+```
+
+
+```{r }
+
+glm_timebyturnssgshaged_fishid <- final_data_long %>%
+  dplyr::distinct(fish_id, bin, .keep_all = TRUE) %>%
+  mutate(bin = case_when(
+    bin == 1 ~ "0-10 mins",
+    bin == 2 ~ "10-20 mins",
+    bin == 3 ~ "20-30 mins",
+    bin == 4 ~ "30-40 mins",
+    bin == 5 ~ "40-50 mins",
+    bin == 6 ~ "50-60 mins"
+    )) %>%
+   glmer.nb(total_turns ~ genotype*bin + genotype + tank + sex + 
+              (1|fish_id) + (1|start_time),
+         data = .)
+
+glm_timebyturnssgshaged_fishid %>% 
+  saveRDS("/Users/admin/Desktop/R projects/.rds")
+
+# re-import this object
+sgsh_aged_totalturns_glm <- read_rds("/Users/admin/Desktop/R projects/.rds")
+
+
+write.csv(sgshaged_timebyturns_anova, "/Users/admin/Desktop/R projects/.csv", 
+          row.names = TRUE)
+
+print(emmeans(glm_timebyturnssgshaged_fishid, ~ genotype * bin), 
+      type = "response") %>% 
+  as_tibble() %>% 
+  mutate(binforvis = case_when(
+    bin == 1 ~ "0-10 mins", 
+    bin == 2 ~ "10-20 mins", 
+    bin == 3 ~ "20-30 mins", 
+    bin == 4 ~ "30-40 mins", 
+    bin == 5 ~ "40-50 mins", 
+    bin == 6 ~ "50-60 mins"
+    )) %>% 
+  ggplot(aes(x = bin, y = response, colour = genotype)) +
+  geom_col(aes(fill =genotype), 
+           alpha = 0.75,
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                position = position_dodge()) +
+  theme(axis.text.x = element_text(hjust = 1,
+                               vjust = 1,
+                               angle = 45), 
+        legend.position = "bottom") +
+  scale_color_viridis_d(end = 0.8, option = "inferno") +
+  scale_fill_viridis_d(end = 0.8, option = "inferno") +
+  labs(y = "Predicted number of turns per bin",
+       x = "Time interval", 
+       title = "GLM-predicted total turns per bin in sgsh S387Lfs", 
+       subtitle = "Effect of genotype*bin p = 0.99 "
+       )
+
+sgshaged_turnsacrosshour_glm_plot_fishid <- 
+ print(emmeans(glm_timebyturnssgshaged_fishid, ~ genotype * bin), 
+       type = "response") %>% 
+  as_tibble() %>% 
+  mutate(binforvis = case_when(
+    bin == 1 ~ "0-10 mins", 
+    bin == 2 ~ "10-20 mins", 
+    bin == 3 ~ "20-30 mins", 
+    bin == 4 ~ "30-40 mins", 
+    bin == 5 ~ "40-50 mins", 
+    bin == 6 ~ "50-60 mins"
+    )) %>% 
+  ggplot(aes(x = bin, y = response, colour = genotype)) +
+
+  geom_point(aes(colour = genotype, fill = genotype),
+              size = 5,
+             position = position_dodge(width = 0.5)) +
+  
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.25,
+                size = 1.3,
+                position = position_dodge(width = 0.5)) +
+  
+  geom_smooth(aes(group = genotype, colour = genotype, fill = genotype), 
+              alpha = 0.5, se = T, size = 2) +
+  
+  # geom_label_repel(aes(label = fish_id), data = . %>% 
+  #                    dplyr::filter(total_turns>300)) +
+  theme(plot.title = element_markdown(size = 14, hjust = 0.5), 
+        plot.subtitle = element_markdown(hjust = 0.5), 
+        legend.position = "bottom") +
+  scale_y_continuous(limits = c(0,225), breaks = seq(0,225,25)) +
+  labs(title = 
+         "Model predicted number of turns performed by ***sgsh^S387Lfs^*** 
+       zebrafish in the Y-maze across 1 hour ", 
+       subtitle = "Effect of genotype * time bin p = 0.003 ", 
+       y = "Number of turns", x = "Time bin") +
+  scale_colour_viridis_d(end = 0.8) +
+  scale_fill_viridis_d(end = 0.8)
+ 
+ saveRDS(sgshaged_turnsacrosshour_glm_plot_fishid, "data/R objects/supps/sgshaged_turnsacrosshour_glm_plot_fishid.rds")
+
+
+print(emmeans(glm_timebyturnssgshaged_fishid, ~ genotype), type ="response") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = genotype, y = response, colour = genotype)) +
+  geom_col(aes(fill = genotype), 
+           alpha = 0.45,
+           width = 0.6,
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax =asymp.UCL),
+                width = 0.125,
+                size = 1,
+                position = position_dodge(width = 0.75)) +
+            theme(axis.title.x = element_text(size = 18, face = "italic", 
+                                              margin = margin(b = 5, t = 15))) +
+            theme(axis.title.y = element_text(size = 16)) +
+            theme(axis.text = element_text(size = 14)) +
+            theme(plot.title = element_text(size = 20, hjust = 0.5)) +
+  theme(plot.subtitle = element_text(size = 16, hjust = 0.5)) +
+  theme(axis.text.x = element_text(size = 18, hjust = 0.5,
+                               vjust = 0.1, face = "bold"), 
+        legend.position = "none") +
+        theme(legend.key.size = unit(0.8, 'cm'), #change legend key size
+        #legend.key.height = unit(2, 'cm'), #change legend key height
+        #legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=14),#change legend text font size
+        legend.margin=margin(-3, 0, 0, 0)) + 
+  scale_color_viridis_d(begin = 0.01, end = 0.02, option = "inferno") +
+  scale_fill_viridis_d(end = 0.75, begin = 0.25) +
+  labs(y = "predicted average turns per bin",
+       x = "sgsh S387Lfs", 
+       title = "Activity of sgsh S387Lfs zebrafish in a y-maze ", 
+       subtitle = "Effect of genotype p = 0.023"
+       )
+
+
+```
+
+## are the mutants more likely to be "non responders"
+
+Some fish may not repsond to this test, So first I will have a look if there 
+are any fish which seem to just sit there and not move for the whole hour. 
+Here, I will define a fish to be a "non-responder" if they perfomed less than 
+60 turns in the test (so less than 1  per minute). 
+
+First, I will plot the totalturns per bin per fish as a line plot. There does 
+seem to be some fish which show a relatively straight line around 10 total 
+turns. 
+```{r}
+final_data %>% 
+  ggplot(aes(x = bin, y = total_turns)) +
+  geom_line(aes(colour = fish_id), show.legend = F) +
+  facet_wrap(~genotype, nrow = 1)
+```
+
+
+Can use the below code to define non-responsive fish 
+(under a certain total turn number). KB used 60 as her cutoff. I had a play, 
+there are only wt and hets under 200 turns. The lowest hom is 211.
+ 
+```{r}
+final_data %>% 
+  dplyr::select(!grep(colnames(final_data), 
+                      pattern = "[L|R]{4}")) %>% #unsleect the tetras cols 
+  group_by(fish_id) %>% 
+  mutate(nonresp = sum(total_turns) < 60) %>% 
+  dplyr::select(fish_id, nonresp) %>% 
+  unique %>% 
+  dplyr::filter(nonresp == TRUE) %>% 
+  left_join(meta %>% dplyr::select(fish_id, genotype)) %>% 
+  kable %>% 
+  kable_styling(full_width = F)
+```
+
+#combined aged alternation plot
+
+```{r}
+
+genotypeggplotFun <- function(glm, title) {
+  summary(emmeans(glm, specs = "genotype"), type = "response") %>% 
+    as_tibble() %>%
+    # mutate(
+    #   Genotype = case_when(
+    #     Genotype == "wt" ~ "+/+",
+    #     Genotype == "het" ~ "-/+",
+    #     Genotype == "hom" ~ "-/-"
+    #   ),
+    #   Genotype = factor(Genotype, levels = c(""))
+    # ) %>%
+    ggplot(aes(genotype, prob, colour = genotype)) +
+    geom_point(size  = 8,
+               position = position_dodge(width = 0.5)) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0.25,
+                  size = 1.3,
+                  position = position_dodge(width = 0.5)) +
+    labs(y = "Estimated probability of alternation") +
+#         x = "sgsh A603Efs" ) +
+    scale_y_continuous(limits = c(0, 0.225), breaks = seq(0,0.225,0.02)) +
+    theme(axis.text.x = element_text(hjust = 0.5,
+                                     vjust = 1,
+                                     size = 18),
+          axis.title.x = element_blank(),
+          axis.text.y = element_text(size = 12),
+          axis.title.y = element_text(size = 16),
+          legend.text = element_text(size = 18), 
+          legend.title = element_text(size = 16),
+          plot.title = element_markdown(size = 16, hjust = 0.5, face = "bold"), 
+          plot.margin=unit(c(5,10,5,10), 'pt')) +
+        scale_color_viridis_d(end = 0.8, option = "inferno") +
+    ggtitle(label = paste(title)) 
+}
+
+agedcombalt <- ggarrange(
+  genotypeggplotFun(glm = sgshagedglm, title = "*sgsh ^S387Lfs*  p = 0.14"),
+  genotypeggplotFun(glm = sgshagedglm, title = "*sgsh ^A603Efs*  p = 0.21"),
+  genotypeggplotFun(glm = hgsnatagedglm, title = "*hgsnat ^G577Sfs*  p = 0.11"),
+  common.legend = T,
+  legend = "none",
+  nrow = 1
+)
+
+saveRDS(agedcombalt, "data/R objects/agedcombalt.rds")
+
+ggarrange(agedcombalt, agedcombturns, ncol = 1, nrow = 2, align = "hv")
+
+
+ggsave(filename = "MPSIII_aged_combined_altsandturns.svg", 
+       path = "output/Publication", width = 12, height = 10, dpi = 300)
+```
+
+
+# Conclusion
+
+

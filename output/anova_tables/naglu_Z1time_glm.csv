@@ -1,0 +1,6 @@
+"","Chisq","Df","Pr(>Chisq)"
+"genotype",6.4,2,0.04
+"sex",0.29,1,0.59
+"start_time_group",4.9,2,0.087
+"tank",0.59,2,0.75
+"genotype:sex",1.8,2,0.4

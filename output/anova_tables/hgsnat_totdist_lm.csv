@@ -1,0 +1,7 @@
+"","Sum Sq","Df","F value","Pr(>F)"
+"genotype",2.4e+08,2,2.5,0.09
+"sex",7100000,1,0.15,0.7
+"start_time_group",2.8e+07,2,0.29,0.75
+"tank",1.2e+08,3,0.86,0.47
+"genotype:sex",1.4e+07,2,0.14,0.87
+"Residuals",3.3e+09,69,NA,NA

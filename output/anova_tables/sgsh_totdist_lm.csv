@@ -1,0 +1,7 @@
+sgsh,Sum Sq,Df,F value,Pr(>F),naglu,Sum Sq,Df,F value,Pr(>F),hgsnat,Sum Sq,Df,F value,Pr(>F)
+genotype,5.20E+07,2,0.5,0.61,genotype,2.50E+08,2,4.2,0.02,genotype,2.40E+08,2,2.5,0.09
+sex,4.40E+08,1,8.5,0.0051,sex,9.00E+07,1,3,0.089,sex,7.10E+06,1,0.15,0.7
+start_time_group,2.10E+08,2,2,0.14,start_time_group,6.80E+07,2,1.1,0.33,start_time_group,2.80E+07,2,0.29,0.75
+,,,,,tank,9.60E+06,2,0.16,0.85,tank,1.20E+08,3,0.86,0.47
+genotype:sex,1.00E+07,2,0.098,0.91,genotype:sex,9.40E+07,2,1.6,0.22,genotype:sex,1.40E+07,2,0.14,0.87
+Residuals,2.90E+09,56,NA,NA,Residuals,1.50E+09,52,NA,NA,Residuals,3.30E+09,69,NA,NA
